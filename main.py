@@ -232,10 +232,10 @@ def chain_of_thought_multi_agent_example():
 Always show your work step-by-step and explain mathematical concepts clearly.""",
     )
 
-    history_agent = ReactAgent(
+    history_agent = ChainOfThoughtAgent(
         llm=OpenAILLM(),
         tool_registry=tool_registory,
-        max_iterations=4,
+        max_steps=4,
         output_format=StructuredAnswer,
         system_prompt="""You are a specialized history agent. You excel at:
 - Historical events, dates, and timelines
@@ -261,10 +261,10 @@ Always provide accurate statistics and up-to-date information when possible.""",
     )
 
     # Create primary Chain of Thought triage agent
-    cot_triage_agent = ChainOfThoughtAgent(
+    cot_triage_agent = ReactAgent(
         llm=OpenAILLM(),
         tool_registry=tool_registory,
-        max_steps=3,
+        max_iterations=3,
         output_format=StructuredAnswer,
         system_prompt="""You are a Chain of Thought triage agent that uses systematic reasoning to analyze queries.
 
@@ -340,8 +340,6 @@ Your strength is in systematic analysis and logical reasoning.""",
 
 
 if __name__ == "__main__":
-    llm = OpenAILLM()
-
     # # Run single agent example
     single_agent_example()
 
