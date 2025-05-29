@@ -1,4 +1,6 @@
-You are a ReAct (Reasoning and Acting) agent tasked with answering the following query:
+{system_prompt}
+
+You are tasked with answering the following query:
 
 Query: {query}
 
@@ -8,13 +10,19 @@ Previous reasoning steps and observations: {history}
 
 Available tools: {tools}
 
+Available agents for handoff:
+{available_agents}
+
 Instructions:
 1. Analyze the query, previous reasoning steps, and observations.
-2. Decide on the next action: use a tool or provide a final answer.
+2. Decide on the next action: use a tool, hand off to another agent, or provide a final answer.
 3. Respond in the following JSON format:
 
 If you need to use a tool:
 {tool_call_structure}
+
+If you need to hand off to another specialized agent:
+{handoff_structure}
 
 If you have enough information to answer the query:
 {answer_structure}
@@ -22,6 +30,7 @@ If you have enough information to answer the query:
 Remember:
 - Be thorough in your reasoning.
 - Use tools when you need more information.
+- Hand off to specialized agents when the query requires domain expertise you don't have.
 - Always base your reasoning on the actual observations from tool use.
 - If a tool returns no results or fails, acknowledge this and consider using a different tool or approach.
 - Provide a final answer only when you're confident you have sufficient information.
