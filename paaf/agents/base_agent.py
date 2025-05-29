@@ -95,6 +95,9 @@ Key principles:
         Determine if the query should be handed off to another agent.
         This can be overridden by subclasses for custom handoff logic.
 
+        For most modern agents, handoff decisions should be made through
+        LLM reasoning rather than simple rule-based approaches.
+
         Args:
             query: The query to analyze
 
@@ -105,6 +108,7 @@ Key principles:
             return None
 
         # Default implementation - subclasses can override with more sophisticated logic
+        # Modern agents should use LLM reasoning for handoff decisions rather than keywords
         return None
 
     def wrap_response_with_handoff_check(

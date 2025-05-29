@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field
 from paaf.agents.react import ReactAgent
+from paaf.agents.chain_of_thought import ChainOfThoughtAgent
 from paaf.agents.multi_agent import MultiAgent
 from paaf.models.agent_handoff import HandoffCapability
 from paaf.llms.openai_llm import OpenAILLM
@@ -182,11 +183,173 @@ Available specialists: math, history, and sports agents."""
         print("-" * 50)
 
 
+def chain_of_thought_single_agent_example():
+    """Example of using a single ChainOfThoughtAgent."""
+    print("=== Chain of Thought Single Agent Example ===")
+
+    class AnalysisFormat(BaseModel):
+        """Example output format for the Chain of Thought agent."""
+        
+        analysis: str = Field(..., description="Step-by-step analysis of the problem")
+        conclusion: str = Field(..., description="Final conclusion based on reasoning")
+        confidence: str = Field(..., description="Confidence level in the answer")
+
+    cot_agent = ChainOfThoughtAgent(
+        llm=llm,
+        tool_registry=tool_registory,
+        max_steps=4,
+        output_format=AnalysisFormat,
+    )
+
+    response = cot_agent.run(
+        "What are the key factors that contributed to the fall of the Roman Empire?"
+    )
+    print("Response:", response)
+    print()
+
+
+def chain_of_thought_multi_agent_example():
+    """Example of using ChainOfThoughtAgent in a multi-agent system."""
+    print("=== Chain of Thought Multi-Agent Example ===")
+
+    class StructuredAnswer(BaseModel):
+        answer: str = Field(..., description="The main answer to the question")
+        reasoning: str = Field(..., description="The reasoning behind the answer")
+        confidence: str = Field(..., description="Confidence level (high/medium/low)")
+
+    # Create specialized agents
+    math_agent = ReactAgent(
+        llm=OpenAILLM(),
+        tool_registry=ToolRegistry(),
+        max_iterations=3,
+        output_format=StructuredAnswer,
+        system_prompt="""You are a specialized mathematics agent. You excel at:
+- Solving equations and mathematical problems
+- Calculus, algebra, geometry, and statistics
+- Mathematical reasoning and proofs
+- Numerical computations and analysis
+
+Always show your work step-by-step and explain mathematical concepts clearly."""
+    )
+
+    history_agent = ReactAgent(
+        llm=OpenAILLM(),
+        tool_registry=tool_registory,
+        max_iterations=4,
+        output_format=StructuredAnswer,
+        system_prompt="""You are a specialized history agent. You excel at:
+- Historical events, dates, and timelines
+- Historical figures and their contributions
+- Cultural and social history
+- Historical context and analysis
+
+Always provide accurate dates and cite historical sources when possible."""
+    )
+
+    sports_agent = ReactAgent(
+        llm=OpenAILLM(),
+        tool_registry=tool_registory,
+        max_iterations=4,
+        output_format=StructuredAnswer,
+        system_prompt="""You are a specialized sports agent. You excel at:
+- Sports statistics and records
+- Athlete information and achievements
+- Sports history and analysis
+- Team performance and comparisons
+
+Always provide accurate statistics and up-to-date information when possible."""
+    )
+
+    # Create primary Chain of Thought triage agent
+    cot_triage_agent = ChainOfThoughtAgent(
+        llm=OpenAILLM(),
+        tool_registry=tool_registory,
+        max_steps=3,
+        output_format=StructuredAnswer,
+        system_prompt="""You are a Chain of Thought triage agent that uses systematic reasoning to analyze queries.
+
+Your role:
+- Break down queries into logical components using step-by-step analysis
+- Determine the appropriate specialist through structured reasoning
+- Handle general knowledge questions with clear logical progression
+- Hand off complex domain-specific queries to specialists
+
+Available specialists: math, history, and sports agents.
+
+Your strength is in systematic analysis and logical reasoning."""
+    )
+
+    # Create multi-agent system with Chain of Thought primary agent
+    multi_agent = MultiAgent(primary_agent=cot_triage_agent)
+
+    # Register specialized agents
+    multi_agent.register_agent(
+        math_agent,
+        HandoffCapability(
+            name="math_specialist",
+            description="Specialist for mathematical calculations, equations, and problem solving",
+            specialties=["algebra", "calculus", "geometry", "statistics", "arithmetic"],
+        ),
+    )
+
+    multi_agent.register_agent(
+        history_agent,
+        HandoffCapability(
+            name="history_specialist", 
+            description="Specialist for historical events, dates, and historical figures",
+            specialties=[
+                "world history",
+                "ancient history", 
+                "modern history",
+                "historical dates",
+            ],
+        ),
+    )
+
+    multi_agent.register_agent(
+        sports_agent,
+        HandoffCapability(
+            name="sports_specialist",
+            description="Specialist for sports information, athletes, and sports statistics", 
+            specialties=[
+                "football",
+                "soccer",
+                "basketball", 
+                "athlete information",
+                "sports records",
+            ],
+        ),
+    )
+
+    # Test different types of queries with Chain of Thought reasoning
+    test_queries = [
+        "What is the integral of 2x^3 + 5x^2 - 3x + 7?",
+        "What were the main causes of World War I?", 
+        "Who has more Champions League titles, Real Madrid or Barcelona?",
+        "What is the process of photosynthesis?",
+    ]
+
+    for query in test_queries:
+        print(f"Query: {query}")
+        try:
+            response = multi_agent.run(query, max_handoffs=2)
+            print(f"Response: {response}")
+        except Exception as e:
+            print(f"Error: {e}")
+        print("-" * 50)
+
+
 if __name__ == "__main__":
     llm = OpenAILLM()
 
-    # Run single agent example
-    single_agent_example()
+    # # Run single agent example
+    # single_agent_example()
+
+    # Run Chain of Thought single agent example
+    chain_of_thought_single_agent_example()
 
     # Run multi-agent example
-    multi_agent_example()
+    # multi_agent_example()
+    
+    # Run Chain of Thought multi-agent example
+    chain_of_thought_multi_agent_example()

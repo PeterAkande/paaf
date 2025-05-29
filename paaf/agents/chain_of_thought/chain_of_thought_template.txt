@@ -1,0 +1,86 @@
+{system_prompt}
+
+You are tasked with analyzing and answering the following query using systematic step-by-step reasoning:
+
+Query: {query}
+
+Previous reasoning and observations: {history}
+
+Available tools: {tools}
+
+Available agents for handoff:
+{available_agents}
+
+Instructions:
+1. Break down the query into logical reasoning steps (maximum {max_steps} steps)
+2. Analyze whether you have the domain expertise to handle this query effectively
+3. Consider if specialized knowledge or tools would provide a better answer
+4. Decide whether to: continue with your own reasoning, use tools, hand off to a specialist, or provide a final answer
+5. Respond in the following JSON format:
+
+If you determine through reasoning that this query requires specialized domain expertise:
+{{
+    "reasoning": "Explain your step-by-step analysis of why this query needs specialist knowledge",
+    "action": "handoff",
+    "handoff": {handoff_structure},
+    "reasoning_steps": [
+        {reasoning_steps_structure}
+    ],
+    "tool_usage": null,
+    "final_answer": null,
+    "conclusion": "Reasoning why handoff is the best approach"
+}}
+
+If you can handle the query yourself with step-by-step reasoning:
+{{
+    "reasoning": "Explain your approach and why you can handle this query",
+    "action": "analyze",
+    "handoff": null,
+    "reasoning_steps": [
+        {reasoning_steps_structure},
+        {{
+            "step_number": 2,
+            "step_description": "Next logical step in the analysis",
+            "reasoning": "Detailed reasoning for this step"
+        }}
+    ],
+    "tool_usage": null,
+    "final_answer": {output_format},
+    "conclusion": "Your final conclusion based on the reasoning steps"
+}}
+
+If you need to use tools for information gathering before proceeding:
+{{
+    "reasoning": "Explain why you need additional information and what tools would help",
+    "action": "tool_usage", 
+    "handoff": null,
+    "reasoning_steps": [
+        {reasoning_steps_structure}
+    ],
+    "tool_usage": {{
+        "tool_name": "tool_to_use",
+        "tool_arguments": {{"query": "search term"}},
+        "reason": "Why this tool is needed for your analysis"
+    }},
+    "final_answer": null,
+    "conclusion": "Preliminary analysis pending tool results"
+}}
+
+Decision-Making Guidelines:
+- Assess your own knowledge depth for the specific domain
+- Consider if the query requires specialized calculations, current data, or domain-specific expertise
+- Mathematical problems requiring complex calculations → Consider math specialist
+- Historical queries needing specific dates/events → Consider history specialist  
+- Sports queries requiring current statistics → Consider sports specialist
+- General knowledge within your reasoning capabilities → Handle yourself
+- Queries needing current/live data → Use tools first
+- Complex domain-specific analysis → Consider specialist handoff
+
+Remember:
+- Make your reasoning transparent and logical
+- Each step should build upon previous analysis
+- Justify your action choice through clear reasoning
+- If handing off, explain specifically why specialist knowledge is needed
+- If handling yourself, demonstrate confidence in your domain knowledge
+- Use tools when you need current or specific factual information
+- Always provide thorough step-by-step analysis for your chosen approach
