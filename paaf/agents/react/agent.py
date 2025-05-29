@@ -11,6 +11,8 @@ from paaf.agents.base_agent import BaseAgent
 from paaf.llms.base_llm import BaseLLM
 from paaf.models.shared_models import Message, ToolChoice
 from paaf.tools.tool_registory import ToolRegistry
+from paaf.models.agent_handoff import AgentHandoff
+from paaf.models.agent_response import AgentResponse
 
 
 logger = get_logger(__name__)
@@ -27,11 +29,13 @@ class ReactAgent(BaseAgent):
         tool_registry: ToolRegistry,
         max_iterations: int = 5,
         output_format: BaseModel | None = None,
+        system_prompt: str | None = None,
     ):
         super().__init__(
             llm=llm,
             tool_registry=tool_registry,
             output_format=output_format,
+            system_prompt=system_prompt,
         )
         self.max_iterations = max_iterations
         self.messages: List[Message] = []  # Conversation history
@@ -39,6 +43,16 @@ class ReactAgent(BaseAgent):
         self.query = None
 
         self.load_template()
+
+    def get_default_system_prompt(self) -> str:
+        """Get the default system prompt for ReactAgent."""
+        return """You are a ReAct (Reasoning and Acting) agent. You follow a systematic approach of Think -> Act -> Observe to solve problems.
+
+Your capabilities:
+- Analytical reasoning and step-by-step problem solving
+- Tool usage for gathering information and performing actions
+- Handoff to specialized agents when domain expertise is needed
+"""
 
     def load_template(self):
         """
@@ -64,17 +78,15 @@ class ReactAgent(BaseAgent):
 
     def run(self, query: str):
         """
-        Run the ReAct agent with the provided messages.
+        Run the ReAct agent with the provided query.
 
         Args:
-            messages (List[Message]): The conversation history.
+            query: The user query to process
 
         Returns:
-            Message: The generated response from the agent.
+            Any: The generated response from the agent
         """
-
         self.query = query
-
         return self._start()
 
     def load_message_history(self) -> str:
@@ -108,20 +120,47 @@ class ReactAgent(BaseAgent):
         self.messages.append(Message(role="user", content=self.query))
         self.current_iteration = 0
 
-        self.think()
+        response = self.think()
+
+        # Check if we got a handoff response that should be returned directly
+        if (
+            response
+            and hasattr(response, "action_type")
+            and response.action_type == ReactAgentActionType.HANDOFF
+        ):
+            # Convert ReactAgent handoff to generic AgentResponse
+            return AgentResponse(
+                content=response, handoff=response.handoff, is_final=False
+            )
 
         last_message = self.messages[-1]
 
-        response = None
+        final_response = None
         if self.output_format is not None:
-            # If an output format is defined, we can return the last message in the expected format
+            # If an output format is defined, try to parse the last message content as the structured format
             try:
-                response = self.output_format(**last_message.content)
+                if isinstance(last_message.content, dict):
+                    final_response = self.output_format(**last_message.content)
+                elif isinstance(last_message.content, str):
+                    # Try to parse JSON string
+                    import json
+
+                    try:
+                        content_dict = json.loads(last_message.content)
+                        final_response = self.output_format(**content_dict)
+                    except (json.JSONDecodeError, TypeError):
+                        # If it's not JSON, treat it as a string answer
+                        final_response = last_message.content
+                else:
+                    final_response = last_message.content
             except Exception as e:
                 logger.error(f"Error formatting output: {e}")
-                response = last_message.content
+                final_response = last_message.content
+        else:
+            final_response = last_message.content
 
-        return response
+        # Wrap response with handoff check at the base agent level
+        return self.wrap_response_with_handoff_check(final_response, self.query)
 
     def think(self):
         """
@@ -129,7 +168,7 @@ class ReactAgent(BaseAgent):
 
         This function generates a response from the language model based on the conversation history and available tools.
 
-        After thinking, it decidws the next action depending on the response
+        After thinking, it decides the next action depending on the response
         """
 
         if self.current_iteration > self.max_iterations:
@@ -141,18 +180,40 @@ class ReactAgent(BaseAgent):
         answer_structure = ReactAgentResponse.get_example_json_for_action(
             action_type=ReactAgentActionType.ANSWER,
         )
-        answer_structure["answer"] = self.get_output_format()
+        answer_json = json.dumps(answer_structure)
 
+        # Get output format and ensure it's JSON serializable
+        output_format = self.get_output_format()
+        if output_format is None:
+            output_format = "string"
+        answer_structure["answer"] = output_format
+
+        # Prepare the handoff structure if handoffs are enabled
+        handoff_structure = "null"
+        if self.handoffs_enabled and self.handoff_capabilities:
+            handoff_structure = json.dumps(
+                ReactAgentResponse.get_example_json_for_action(
+                    action_type=ReactAgentActionType.HANDOFF,
+                )
+            )
+
+        # Prepare the tool call structure
+        tool_call_json = json.dumps(
+            ReactAgentResponse.get_example_json_for_action(
+                action_type=ReactAgentActionType.TOOL_CALL,
+            )
+        )
+
+        # Include system prompt in the template
         prompt = self.template.format(
+            system_prompt=self.get_system_prompt(),
             query=self.query,
             history=self.load_message_history(),
             tools=[tool.to_dict() for tool in self.tools_registry.tools.values()],
-            tool_call_structure=json.dumps(
-                ReactAgentResponse.get_example_json_for_action(
-                    action_type=ReactAgentActionType.TOOL_CALL,
-                )
-            ),
-            answer_structure=json.dumps(answer_structure),
+            tool_call_structure=tool_call_json,
+            answer_structure=answer_json,
+            available_agents=self.get_available_agents_description(),
+            handoff_structure=handoff_structure,
         )
 
         response = None
@@ -162,9 +223,7 @@ class ReactAgent(BaseAgent):
 
         if not isinstance(llm_response, ReactAgentResponse):
             # Try to convert the response to ReactAgentResponse
-
             response = self.convert_response_to_react_agent_response(llm_response)
-
         else:
             response = llm_response
 
@@ -173,7 +232,7 @@ class ReactAgent(BaseAgent):
 
         logger.info(f"Iteration {self.current_iteration}: {response}\n")
 
-        self.decide_action(response)
+        return self.decide_action(response)
 
     def convert_response_to_react_agent_response(
         self, response: str
@@ -225,8 +284,19 @@ class ReactAgent(BaseAgent):
             self.act(response.tool_choice, tool_arguments)
 
         elif response.action_type == ReactAgentActionType.ANSWER:
-            # If the action type is ANSWER, we can return the final answer
+            # If the action type is ANSWER, store the structured answer
             self.messages.append(Message(role="assistant", content=response.answer))
+            return None  # End the thinking loop
+
+        elif response.action_type == ReactAgentActionType.HANDOFF:
+            # Return the response with handoff information for MultiAgent to handle
+            if not response.handoff:
+                raise ValueError(
+                    "Response does not contain handoff information for HANDOFF action."
+                )
+
+            # Return the handoff response directly
+            return response
 
         else:
             raise ValueError(f"Unknown action type: {response.action_type}")
@@ -284,3 +354,7 @@ class ReactAgent(BaseAgent):
         finally:
             # After executing the tool, we can think again to decide the next action
             self.think()
+
+    def _format_available_agents(self) -> str:
+        """Format available agents for the prompt."""
+        return self.get_available_agents_description()

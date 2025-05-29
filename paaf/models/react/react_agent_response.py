@@ -1,19 +1,21 @@
 from enum import Enum, auto
 import json
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from paaf.models.shared_models import ToolChoice
+from paaf.models.agent_handoff import AgentHandoff
 
 
-class ReactAgentActionType(Enum):
+class ReactAgentActionType(str, Enum):
     """
     Enum representing the type of action to be taken by the ReAct agent.
     """
 
-    TOOL_CALL = "TOOL_CALL"  # Represents a tool call action
-    ANSWER = "ANSWER"  # Represents an answer action, which is the final response from the agent
+    TOOL_CALL = "tool_call"  # Represents a tool call action
+    ANSWER = "answer"  # Represents an answer action, which is the final response from the agent
+    HANDOFF = "handoff"  # New action type for agent handoffs
 
     def __str__(self):
         """
@@ -27,26 +29,31 @@ class ReactAgentActionType(Enum):
 
 class ReactAgentResponse(BaseModel):
     """
-    Represents the response from the ReAct agent.
+    Response from a ReAct agent including reasoning, action type, and relevant details.
     """
 
-    action_type: ReactAgentActionType = Field(
-        ..., description="The type of action taken by the agent."
+    reasoning: str = Field(description="The agent's reasoning for the chosen action")
+    action_type: ReactAgentActionType = Field(description="The type of action to take")
+    answer: Optional[Any] = Field(
+        default=None, description="Final answer when action_type is ANSWER - can be any format including structured objects"
     )
-    thought: str = Field(..., description="The thought process of the agent")
-    answer: Any = Field(
-        None,
-        description="The final answer provided by the agent, if applicable.",
+    tool_choice: Optional[ToolChoice] = Field(
+        default=None, description="Tool selection when action_type is TOOL_CALL"
     )
-    tool_choice: ToolChoice | None = Field(
-        None,
-        description="The tool choice made by the agent, if applicable.",
+    tool_arguments: Optional[Dict[str, Any]] = Field(
+        default=None, description="Arguments for the chosen tool"
+    )
+    handoff: Optional[AgentHandoff] = Field(
+        default=None, description="Handoff information when action_type is HANDOFF"
     )
 
-    tool_arguments: Dict[str, Any] | None = Field(
-        None,
-        description="The arguments to be passed to the tool, if applicable.",
-    )
+    @field_validator("action_type", mode="before")
+    @classmethod
+    def normalize_action_type(cls, v):
+        """Normalize action_type to lowercase to handle LLM output variations."""
+        if isinstance(v, str):
+            return v.lower()
+        return v
 
     @classmethod
     def get_schema_json(cls, indent: int = 2) -> str:
@@ -72,19 +79,44 @@ class ReactAgentResponse(BaseModel):
         return json.dumps(cls._generate_dynamic_example(), indent=2)
 
     @classmethod
-    def get_example_json_for_action(cls, action_type: str = "TOOL_CALL") -> dict:
-        """
-        Generate a dynamic example JSON for a specific action type.
+    def get_example_json_for_action(cls, action_type: ReactAgentActionType) -> dict:
+        """Get example JSON structure for a specific action type."""
+        base_structure = {
+            "reasoning": "Explanation of why this action was chosen",
+            "action_type": action_type.value,  # Use .value to get lowercase string
+            "answer": None,
+            "tool_choice": None,
+            "tool_arguments": None,
+            "handoff": None,
+        }
 
-        Args:
-            action_type: Either "TOOL_CALL" or "ANSWER"
+        if action_type == ReactAgentActionType.TOOL_CALL:
+            base_structure.update(
+                {
+                    "tool_choice": {
+                        "name": "example_tool",
+                        "tool_id": "tool_123",
+                        "reason": "This tool will help get the needed information",
+                    },
+                    "tool_arguments": {"query": "search term", "limit": 5},
+                }
+            )
+        elif action_type == ReactAgentActionType.ANSWER:
+            base_structure.update(
+                {"answer": "Final answer - can be string or structured object based on output_format"}
+            )
+        elif action_type == ReactAgentActionType.HANDOFF:
+            base_structure.update(
+                {
+                    "handoff": {
+                        "agent_name": "specialist_agent",
+                        "context": "Reason for handing off to this specialist",
+                        "input_data": {"key": "value"},
+                    }
+                }
+            )
 
-        Returns:
-            Example JSON
-        """
-        example = cls._generate_dynamic_example_for_action(action_type)
-
-        return example
+        return base_structure
 
     @classmethod
     def _generate_dynamic_example(cls) -> Dict[str, Any]:
