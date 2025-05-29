@@ -195,7 +195,7 @@ def chain_of_thought_single_agent_example():
         confidence: str = Field(..., description="Confidence level in the answer")
 
     cot_agent = ChainOfThoughtAgent(
-        llm=llm,
+        llm=OpenAILLM(),
         tool_registry=tool_registory,
         max_steps=4,
         output_format=AnalysisFormat,
