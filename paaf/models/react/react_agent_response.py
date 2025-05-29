@@ -34,7 +34,7 @@ class ReactAgentResponse(BaseModel):
         ..., description="The type of action taken by the agent."
     )
     thought: str = Field(..., description="The thought process of the agent")
-    answer: str | None = Field(
+    answer: Any = Field(
         None,
         description="The final answer provided by the agent, if applicable.",
     )
@@ -72,7 +72,7 @@ class ReactAgentResponse(BaseModel):
         return json.dumps(cls._generate_dynamic_example(), indent=2)
 
     @classmethod
-    def get_example_json_for_action(cls, action_type: str = "TOOL_CALL") -> str:
+    def get_example_json_for_action(cls, action_type: str = "TOOL_CALL") -> dict:
         """
         Generate a dynamic example JSON for a specific action type.
 
@@ -80,11 +80,11 @@ class ReactAgentResponse(BaseModel):
             action_type: Either "TOOL_CALL" or "ANSWER"
 
         Returns:
-            Example JSON as a string
+            Example JSON
         """
         example = cls._generate_dynamic_example_for_action(action_type)
 
-        return json.dumps(example, indent=2)
+        return example
 
     @classmethod
     def _generate_dynamic_example(cls) -> Dict[str, Any]:

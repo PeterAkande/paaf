@@ -1,3 +1,4 @@
+from pydantic import BaseModel, Field
 from paaf.agents.react import ReactAgent
 from paaf.llms.openai_llm import OpenAILLM
 
@@ -26,12 +27,20 @@ def my_name() -> str:
 if __name__ == "__main__":
     llm = OpenAILLM()
 
+    class OutputFormat(BaseModel):
+        """
+        Example output format for the ReAct agent.
+        """
+        answer: str = Field(..., description="The answer to the question.")
+        source: str = Field(..., description="The source of the information.")
+
     react_agent = ReactAgent(
         llm=llm,
         tool_registry=tool_registory,
         max_iterations=5,
+        output_format=OutputFormat
     )
 
-    response = react_agent.run("Who is older, Cristiano Ronaldo or Lionel Messi?")
+    response: OutputFormat = react_agent.run("Who is older, Cristiano Ronaldo or Lionel Messi?")
 
-    print("Response:", response.content)
+    print("Response:", response)
