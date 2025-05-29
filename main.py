@@ -73,7 +73,7 @@ def multi_agent_example():
 - Mathematical reasoning and proofs
 - Numerical computations and analysis
 
-Always show your work step-by-step and explain mathematical concepts clearly."""
+Always show your work step-by-step and explain mathematical concepts clearly.""",
     )
 
     history_agent = ReactAgent(
@@ -87,7 +87,7 @@ Always show your work step-by-step and explain mathematical concepts clearly."""
 - Cultural and social history
 - Historical context and analysis
 
-Always provide accurate dates and cite historical sources when possible."""
+Always provide accurate dates and cite historical sources when possible.""",
     )
 
     sports_agent = ReactAgent(
@@ -101,7 +101,7 @@ Always provide accurate dates and cite historical sources when possible."""
 - Sports history and analysis
 - Team performance and comparisons
 
-Always provide accurate statistics and up-to-date information when possible."""
+Always provide accurate statistics and up-to-date information when possible.""",
     )
 
     # Create primary triage agent
@@ -118,7 +118,7 @@ Your role:
 - Hand off complex or specialized queries to domain experts
 - Ensure users get the most accurate and detailed responses
 
-Available specialists: math, history, and sports agents."""
+Available specialists: math, history, and sports agents.""",
     )
 
     # Create multi-agent system
@@ -189,7 +189,7 @@ def chain_of_thought_single_agent_example():
 
     class AnalysisFormat(BaseModel):
         """Example output format for the Chain of Thought agent."""
-        
+
         analysis: str = Field(..., description="Step-by-step analysis of the problem")
         conclusion: str = Field(..., description="Final conclusion based on reasoning")
         confidence: str = Field(..., description="Confidence level in the answer")
@@ -229,7 +229,7 @@ def chain_of_thought_multi_agent_example():
 - Mathematical reasoning and proofs
 - Numerical computations and analysis
 
-Always show your work step-by-step and explain mathematical concepts clearly."""
+Always show your work step-by-step and explain mathematical concepts clearly.""",
     )
 
     history_agent = ReactAgent(
@@ -243,7 +243,7 @@ Always show your work step-by-step and explain mathematical concepts clearly."""
 - Cultural and social history
 - Historical context and analysis
 
-Always provide accurate dates and cite historical sources when possible."""
+Always provide accurate dates and cite historical sources when possible.""",
     )
 
     sports_agent = ReactAgent(
@@ -257,7 +257,7 @@ Always provide accurate dates and cite historical sources when possible."""
 - Sports history and analysis
 - Team performance and comparisons
 
-Always provide accurate statistics and up-to-date information when possible."""
+Always provide accurate statistics and up-to-date information when possible.""",
     )
 
     # Create primary Chain of Thought triage agent
@@ -276,7 +276,7 @@ Your role:
 
 Available specialists: math, history, and sports agents.
 
-Your strength is in systematic analysis and logical reasoning."""
+Your strength is in systematic analysis and logical reasoning.""",
     )
 
     # Create multi-agent system with Chain of Thought primary agent
@@ -295,11 +295,11 @@ Your strength is in systematic analysis and logical reasoning."""
     multi_agent.register_agent(
         history_agent,
         HandoffCapability(
-            name="history_specialist", 
+            name="history_specialist",
             description="Specialist for historical events, dates, and historical figures",
             specialties=[
                 "world history",
-                "ancient history", 
+                "ancient history",
                 "modern history",
                 "historical dates",
             ],
@@ -310,11 +310,11 @@ Your strength is in systematic analysis and logical reasoning."""
         sports_agent,
         HandoffCapability(
             name="sports_specialist",
-            description="Specialist for sports information, athletes, and sports statistics", 
+            description="Specialist for sports information, athletes, and sports statistics",
             specialties=[
                 "football",
                 "soccer",
-                "basketball", 
+                "basketball",
                 "athlete information",
                 "sports records",
             ],
@@ -324,7 +324,7 @@ Your strength is in systematic analysis and logical reasoning."""
     # Test different types of queries with Chain of Thought reasoning
     test_queries = [
         "What is the integral of 2x^3 + 5x^2 - 3x + 7?",
-        "What were the main causes of World War I?", 
+        "What were the main causes of World War I?",
         "Who has more Champions League titles, Real Madrid or Barcelona?",
         "What is the process of photosynthesis?",
     ]
@@ -343,13 +343,13 @@ if __name__ == "__main__":
     llm = OpenAILLM()
 
     # # Run single agent example
-    # single_agent_example()
+    single_agent_example()
 
     # Run Chain of Thought single agent example
     chain_of_thought_single_agent_example()
 
     # Run multi-agent example
-    # multi_agent_example()
-    
+    multi_agent_example()
+
     # Run Chain of Thought multi-agent example
     chain_of_thought_multi_agent_example()
