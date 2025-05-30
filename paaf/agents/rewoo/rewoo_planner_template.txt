@@ -1,0 +1,35 @@
+For the following task, make plans that can solve the problem step by step. For each plan, indicate
+which external tool together with tool input to retrieve evidence ot handoff and hand off details for the next agent. Evidence is the response from the tool.
+
+Query: {query}
+
+Tools available are:
+{available_tools}
+
+Available Agents for handoff:
+{available_agents}
+
+Respond with a list of plans, each plans in different cases have the JSON formats:
+
+If you need to use a tool:
+{tool_plan_structure}
+
+
+If you need to hand off to another agent:
+{agent_handoff_structure}
+
+So, an example response can be:
+[
+    {tool_plan_structure},
+    {tool_plan_structure},
+]
+
+
+An Example full task and plans, For example,
+Task: Thomas, Toby, and Rebecca worked a total of 157 hours in one week. Thomas worked x
+hours. Toby worked 10 hours less than twice what Thomas worked, and Rebecca worked 8 hours
+less than Toby. How many hours did Rebecca work?
+Plan: Given Thomas worked x hours, translate the problem into algebraic expressions and solve
+with Wolfram Alpha. Evidence 1 (#E1) = WolframAlpha[Solve x + (2x−10) + ((2x−10)−8) = 157]
+Plan: Find out the number of hours Thomas worked. #E2 = LLM[What is x, given #E1]
+Plan: Calculate the number of hours Rebecca worked. #E3 = Calculator[(2 ∗#E2−10)−8]
