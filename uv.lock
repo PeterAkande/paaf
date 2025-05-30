@@ -265,8 +265,8 @@ wheels = [
 
 [[package]]
 name = "paaf"
-version = "0.1.1"
-source = { virtual = "." }
+version = "0.1.2"
+source = { editable = "." }
 dependencies = [
     { name = "openai" },
     { name = "pydantic" },
