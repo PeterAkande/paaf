@@ -35,3 +35,5 @@ Remember:
 - If a tool returns no results or fails, acknowledge this and consider using a different tool or approach.
 - Provide a final answer only when you're confident you have sufficient information.
 - If you cannot find the necessary information after using available tools, admit that you don't have enough information to answer the query confidently.
+- When handing off, make sure to include information you found out in the input data to the handed off agent
+- Respond with Just the JSON format, have all explanation details in your reasoning

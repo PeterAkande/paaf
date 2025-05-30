@@ -4,6 +4,7 @@ from typing import List, Optional, Any
 from pydantic import BaseModel
 
 from paaf.llms.base_llm import BaseLLM
+from paaf.models.multi_agent_architecture import AgentArchitectureType
 from paaf.models.shared_models import Message
 from paaf.models.tool import Tool
 from paaf.models.utils.model_example_json_generator import generate_example_json
@@ -107,8 +108,6 @@ Key principles:
         if not self.handoffs_enabled or not self.handoff_capabilities:
             return None
 
-        # Default implementation - subclasses can override with more sophisticated logic
-        # Modern agents should use LLM reasoning for handoff decisions rather than keywords
         return None
 
     def wrap_response_with_handoff_check(
@@ -142,6 +141,12 @@ Key principles:
             agent_info = f"- {capability.name}: {capability.description}"
             if capability.specialties:
                 agent_info += f" (Specialties: {', '.join(capability.specialties)})"
+
+            # Add role and peer information for horizontal/hybrid architectures
+            agent_info += f" [Role: {capability.role}]"
+            if capability.peer_agents:
+                agent_info += f" [Peers: {', '.join(capability.peer_agents)}]"
+
             agent_list.append(agent_info)
 
         return "\n".join(agent_list)

@@ -130,7 +130,9 @@ Your capabilities:
         ):
             # Convert ReactAgent handoff to generic AgentResponse
             return AgentResponse(
-                content=response, handoff=response.handoff, is_final=False
+                content=response,
+                handoff=response.handoff,
+                is_final=False,
             )
 
         last_message = self.messages[-1]
