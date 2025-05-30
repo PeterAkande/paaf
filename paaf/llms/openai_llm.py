@@ -7,7 +7,7 @@ from paaf.llms.base_llm import BaseLLM
 
 load_dotenv()
 
-OPEN_AI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPEN_AI_API_KEY = os.getenv("OPENAI_API_KEY", None)
 
 
 class OpenAILLM(BaseLLM):
@@ -15,10 +15,15 @@ class OpenAILLM(BaseLLM):
     OpenAI Language Model Wrapper
     """
 
-    def __init__(self, model: str = "gpt-4o", base_url: str = None):
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        base_url: str = None,
+        api_key: str = None,
+    ):
         super().__init__()
 
-        self.api_key = OPEN_AI_API_KEY
+        self.api_key = api_key or OPEN_AI_API_KEY
         self.base_url = base_url
         self.model = model
         self.client = openai.Client(api_key=self.api_key, base_url=self.base_url)

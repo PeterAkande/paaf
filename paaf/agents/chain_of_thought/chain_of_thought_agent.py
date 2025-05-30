@@ -26,7 +26,7 @@ class ChainOfThoughtAgent(BaseAgent):
     def __init__(
         self,
         llm: BaseLLM,
-        tool_registry: ToolRegistry = None,
+        tool_registry: ToolRegistry | None = None,
         max_steps: int = 5,
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,

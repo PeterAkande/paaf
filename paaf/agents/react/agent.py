@@ -26,7 +26,7 @@ class ReactAgent(BaseAgent):
     def __init__(
         self,
         llm: BaseLLM,
-        tool_registry: ToolRegistry,
+        tool_registry: ToolRegistry | None = None,
         max_iterations: int = 5,
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,

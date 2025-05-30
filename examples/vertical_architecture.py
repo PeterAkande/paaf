@@ -5,8 +5,8 @@ from paaf.models.agent_handoff import HandoffCapability
 from paaf.llms.openai_llm import OpenAILLM
 
 from paaf.tools.tool_registory import ToolRegistry
-from serper import search as serper_search
-from wiki import wiki_search
+from tools.serper import search as serper_search
+from tools.wiki import wiki_search
 from paaf.models.multi_agent_architecture import (
     ArchitectureConfig,
     AgentArchitectureType,
