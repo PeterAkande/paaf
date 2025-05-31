@@ -20,12 +20,20 @@ class OpenAILLM(BaseLLM):
         model: str = "gpt-4o",
         base_url: str = None,
         api_key: str = None,
+        max_tokens: int = 1000,
+        temperature: float = 0.7,
+        **kwargs: dict,
     ):
         super().__init__()
 
         self.api_key = api_key or OPEN_AI_API_KEY
         self.base_url = base_url
         self.model = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+
+        self.kwargs = kwargs
+
         self.client = openai.Client(api_key=self.api_key, base_url=self.base_url)
 
     def generate(self, prompt: str, response_format=None) -> str:
@@ -44,7 +52,9 @@ class OpenAILLM(BaseLLM):
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             response_format=response_format if response_format else openai.NOT_GIVEN,
-            max_tokens=1000,
-            temperature=0.7,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            **self.kwargs,
         )
+
         return response.choices[0].message.content.strip()
