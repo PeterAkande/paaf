@@ -1,6 +1,6 @@
 [project]
 name = "paaf"
-version = "0.1.4"
+version = "0.1.5"
 description = "Paaf is an Agent Framework for building AI agents"
 readme = "README.md"
 requires-python = ">=3.10"
