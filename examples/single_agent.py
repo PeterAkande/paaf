@@ -63,10 +63,10 @@ def single_agent_example():
         system_prompt="You are an helpful customer support agent. Your goal is to assist users with their queries by providing accurate and helpful responses. You can use tools to gather information when necessary.",
     )
 
-    response: OutputFormat = react_agent.run(
-        "I have a problem, please help me solve it."
-    )
-    print("Response:", response.answer)
+    response = react_agent.run("I have a problem, please help me solve it.")
+
+    output: OutputFormat = response.content
+    print("Response:", output.answer)
     print()
 
 

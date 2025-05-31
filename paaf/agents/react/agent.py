@@ -76,7 +76,7 @@ Your capabilities:
         with open(template_path, "r") as file:
             self.template = file.read()
 
-    def run(self, query: str):
+    def run(self, query: str) -> AgentResponse:
         """
         Run the ReAct agent with the provided query.
 
@@ -100,7 +100,7 @@ Your capabilities:
             [f"{message.role}: {message.content}" for message in self.messages]
         )
 
-    def _start(self):
+    def _start(self) -> AgentResponse:
         """
         Start the ReAct agent.
 
@@ -182,7 +182,6 @@ Your capabilities:
         answer_structure = ReactAgentResponse.get_example_json_for_action(
             action_type=ReactAgentActionType.ANSWER,
         )
-        answer_json = json.dumps(answer_structure)
 
         # Get output format and ensure it's JSON serializable
         output_format = self.get_output_format()
@@ -213,7 +212,7 @@ Your capabilities:
             history=self.load_message_history(),
             tools=[tool.to_dict() for tool in self.tools_registry.tools.values()],
             tool_call_structure=tool_call_json,
-            answer_structure=answer_json,
+            answer_structure=answer_structure,
             available_agents=self.get_available_agents_description(),
             handoff_structure=handoff_structure,
         )
