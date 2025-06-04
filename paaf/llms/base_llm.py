@@ -23,3 +23,17 @@ class BaseLLM(ABC):
             Message: The generated response.
         """
         pass
+
+    @abstractmethod
+    async def agenerate(self, prompt: str, response_format: Any = None) -> Message:
+        """
+        Async version of generate method.
+
+        Args:
+            prompt (str): The prompt
+            response_format : The base model to have the output in, can be a string or a custom format.
+
+        Returns:
+            Message: The generated response.
+        """
+        pass

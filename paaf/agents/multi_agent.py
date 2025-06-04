@@ -1,5 +1,6 @@
 import traceback
 from typing import Dict, List, Optional, Any
+import asyncio
 from pydantic import BaseModel
 
 from paaf.config.logging import get_logger
@@ -111,6 +112,31 @@ class MultiAgent:
         else:  # HYBRID
             return self._run_hybrid_architecture(query, max_handoffs)
 
+    async def arun(self, query: str, max_handoffs: int = 3) -> Any:
+        """
+        Async version of run method.
+
+        Args:
+            query: The user query
+            max_handoffs: Maximum number of handoffs allowed to prevent infinite loops
+
+        Returns:
+            The final response from the agent system
+        """
+        self._update_agent_handoff_capabilities()
+
+        self.conversation_history.append(Message(role="user", content=query))
+
+        if self.architecture_config.architecture_type == AgentArchitectureType.VERTICAL:
+            return await self._arun_vertical_architecture(query, max_handoffs)
+        elif (
+            self.architecture_config.architecture_type
+            == AgentArchitectureType.HORIZONTAL
+        ):
+            return await self._arun_horizontal_architecture(query, max_handoffs)
+        else:  # HYBRID
+            return await self._arun_hybrid_architecture(query, max_handoffs)
+
     def _run_vertical_architecture(self, query: str, max_handoffs: int) -> Any:
         """
         Run in vertical (hierarchical) architecture.
@@ -205,24 +231,89 @@ class MultiAgent:
         )
         raise RuntimeError(runtime_message)
 
-    def _format_review_query(
-        self, query: str, specialist_response: Any, specialist_agent_name: str
-    ) -> str:
-
-        return f"""
-        Original query: {query}
-
-        Specialist ({specialist_agent_name}) provided the following response:
-        {specialist_response}
-
-        Please review this response and either:
-        1. Accept it as the final answer
-        2. Request modifications 
-        3. Hand off to a different specialist
-        4. Provide your own final answer
-
-        Provide a final response to the user.
+    async def _arun_vertical_architecture(self, query: str, max_handoffs: int) -> Any:
         """
+        Async version of _run_vertical_architecture method.
+        """
+        logger.info(
+            "Running in VERTICAL architecture - Primary agent controls all decisions"
+        )
+
+        handoff_count = 0
+        current_query = query
+
+        while handoff_count < max_handoffs:
+            try:
+                # Primary agent always makes the decision
+                primary_response = await self.primary_agent.arun(current_query)
+
+                # Check if primary agent wants to hand off
+                should_handoff = (
+                    isinstance(primary_response, AgentResponse)
+                    and primary_response.requires_handoff
+                )
+
+                if not should_handoff:
+                    # Primary agent provided final response
+                    final_content = None
+                    if isinstance(primary_response, AgentResponse):
+                        final_content = primary_response.content
+                    else:
+                        final_content = primary_response
+
+                    # Update conversation history
+                    message = Message(role="assistant", content=str(final_content))
+                    self.conversation_history.append(message)
+                    return final_content
+
+                logger.info(
+                    f"Primary agent requesting handoff to: {primary_response.handoff.agent_name}"
+                )
+                # Execute handoff under primary agent's control
+                handoff_result = await self._aexecute_vertical_handoff(
+                    primary_response.handoff,
+                    current_query,
+                )
+
+                if not handoff_result.success:
+                    logger.error(f"Handoff failed: {handoff_result.error_message}")
+                    current_query = f"Handoff to {primary_response.handoff.agent_name} failed: {handoff_result.error_message}. Please try a different approach or provide the answer yourself."
+                    handoff_count += 1
+                    continue
+
+                # Update conversation history
+                self.conversation_history.append(
+                    Message(
+                        role="assistant",
+                        content=f"Primary agent delegated to {primary_response.handoff.agent_name}: {primary_response.handoff.context}",
+                    )
+                )
+
+                # In vertical architecture, specialist response goes back to primary for final decision
+                specialist_response = handoff_result.response
+
+                # Update the review query for primary agent to check in the next iteration
+                review_query = self._format_review_query(
+                    current_query,
+                    specialist_response,
+                    primary_response.handoff.agent_name,
+                )
+
+                current_query = review_query
+                handoff_count += 1
+                logger.info(
+                    f"Primary agent reviewing specialist response from {primary_response.handoff.agent_name}"
+                )
+
+            except Exception as e:
+                traceback.print_exc()
+                logger.error(f"Error in vertical architecture execution: {e}")
+                break
+
+        runtime_message = (
+            f"Maximum handoffs ({max_handoffs}) exceeded in vertical architecture"
+        )
+        raise RuntimeError(runtime_message)
 
     def _run_horizontal_architecture(self, query: str, max_handoffs: int) -> Any:
         """
@@ -332,6 +423,113 @@ Based on your analysis so far, please provide the best answer you can.
             f"Maximum handoffs ({max_handoffs}) exceeded in horizontal architecture"
         )
 
+    async def _arun_horizontal_architecture(self, query: str, max_handoffs: int) -> Any:
+        """
+        Async version of _run_horizontal_architecture method.
+        """
+        logger.info("Running in HORIZONTAL architecture - Peer-to-peer collaboration")
+
+        handoff_count = 0
+        current_agent = self.primary_agent
+        current_query = query
+        handoff_chain = ["primary"]
+
+        while handoff_count < max_handoffs:
+            try:
+                logger.info(f"Current agent: {handoff_chain[-1]}")
+                response = await current_agent.arun(current_query)
+
+                # Check if current agent wants to hand off to a peer
+                should_handoff = (
+                    isinstance(response, AgentResponse) and response.requires_handoff
+                )
+                if not should_handoff:
+                    # Current agent provided final response
+                    final_content = (
+                        response.content
+                        if isinstance(response, AgentResponse)
+                        else response
+                    )
+                    self.conversation_history.append(
+                        Message(role="assistant", content=str(final_content))
+                    )
+                    logger.info(f"Final response from {handoff_chain[-1]}")
+                    return final_content
+
+                target_agent_name = response.handoff.agent_name
+
+                # Prevent infinite loops - don't hand back to same agent
+                if target_agent_name in handoff_chain[-2:]:  # Check last 2 agents
+                    logger.warning(f"Preventing handoff loop to {target_agent_name}")
+                    # Force current agent to provide final answer
+                    final_query = f"""
+Previous attempt to hand off to {target_agent_name} would create a loop.
+You must provide a final answer to: {query}
+
+Based on your analysis so far, please provide the best answer you can.
+"""
+                    final_response = await current_agent.arun(final_query)
+
+                    final_content = None
+                    if isinstance(final_response, AgentResponse):
+                        final_content = final_response.content
+                    else:
+                        final_content = final_response
+
+                    message = Message(role="assistant", content=str(final_content))
+                    self.conversation_history.append(message)
+                    return final_content
+
+                # Execute peer-to-peer handoff
+                handoff_result = await self._aexecute_horizontal_handoff(
+                    response.handoff,
+                    current_query,
+                    handoff_chain,
+                )
+
+                if not handoff_result.success:
+                    logger.error(f"Peer handoff failed: {handoff_result.error_message}")
+                    # Continue with current agent
+                    current_query = f"Handoff to {target_agent_name} failed: {handoff_result.error_message}. Please provide your best answer."
+                    continue
+
+                # Update conversation history
+                self.conversation_history.append(
+                    Message(
+                        role="assistant",
+                        content=f"{handoff_chain[-1]} handed off to {target_agent_name}: {response.handoff.context}. input is: {response.handoff.input_data if response.handoff.input_data else 'None'}",
+                    )
+                )
+
+                # Switch to the target agent
+                current_agent = self.agents[target_agent_name]
+                handoff_chain.append(target_agent_name)
+
+                # Prepare context for next agent
+                current_query = f"""
+                Original query: {query}
+
+                Handoff context from {handoff_chain[-2]}: {response.handoff.context}
+                Handoff input data from {handoff_chain[-2]}: {response.handoff.input_data if response.handoff.input_data else 'None'}
+
+                Previous conversation:
+                {self._format_conversation_history()}
+
+                Please handle this query with your specialized knowledge.
+                Please include all answers to the original query if you are providing a final answer.
+                """
+                handoff_count += 1
+                continue
+
+            except Exception as e:
+                traceback.print_exc()
+                logger.error(f"Error in horizontal architecture execution: {e}")
+                break
+
+        raise RuntimeError(
+            f"Maximum handoffs ({max_handoffs}) exceeded in horizontal architecture"
+        )
+
     def _run_hybrid_architecture(self, query: str, max_handoffs: int) -> Any:
         """
         Run in hybrid architecture.
@@ -343,6 +541,17 @@ Based on your analysis so far, please provide the best answer you can.
             return self._run_horizontal_architecture(query, max_handoffs)
         else:
             return self._run_vertical_architecture(query, max_handoffs)
+
+    async def _arun_hybrid_architecture(self, query: str, max_handoffs: int) -> Any:
+        """
+        Async version of _run_hybrid_architecture method.
+        """
+        logger.info("Running in HYBRID architecture - Dynamic leadership")
+
+        if self.architecture_config.allow_peer_handoffs:
+            return await self._arun_horizontal_architecture(query, max_handoffs)
+        else:
+            return await self._arun_vertical_architecture(query, max_handoffs)
 
     def _execute_vertical_handoff(
         self, handoff: AgentHandoff, original_query: str
@@ -383,6 +592,45 @@ Please provide your specialized analysis/answer. The primary agent will review y
                 success=False, response=None, error_message=str(e)
             )
 
+    async def _aexecute_vertical_handoff(
+        self, handoff: AgentHandoff, original_query: str
+    ) -> AgentHandoffResponse:
+        """Async version of _execute_vertical_handoff method."""
+        target_agent_name = handoff.agent_name
+
+        if target_agent_name not in self.agents:
+            return AgentHandoffResponse(
+                success=False,
+                response=None,
+                error_message=f"Agent '{target_agent_name}' not found",
+            )
+
+        target_agent = self.agents[target_agent_name]
+
+        # Prepare context for the specialist
+        handoff_query = f"""
+You are a specialist agent working under the primary agent's direction.
+
+Original query: {original_query}
+Handoff context: {handoff.context}
+Architecture: VERTICAL (you report back to primary agent)
+
+Previous conversation:
+{self._format_conversation_history()}
+
+Please provide your specialized analysis/answer. The primary agent will review your response.
+"""
+
+        try:
+            response = await target_agent.arun(handoff_query)
+            return AgentHandoffResponse(
+                success=True, response=response, handoff_chain=[target_agent_name]
+            )
+        except Exception as e:
+            return AgentHandoffResponse(
+                success=False, response=None, error_message=str(e)
+            )
+
     def _execute_horizontal_handoff(
         self, handoff: AgentHandoff, original_query: str, handoff_chain: List[str]
     ) -> AgentHandoffResponse:
@@ -409,6 +657,52 @@ Please provide your specialized analysis/answer. The primary agent will review y
             response=None,
             handoff_chain=handoff_chain + [target_agent_name],
         )
+
+    async def _aexecute_horizontal_handoff(
+        self, handoff: AgentHandoff, original_query: str, handoff_chain: List[str]
+    ) -> AgentHandoffResponse:
+        """Async version of _execute_horizontal_handoff method."""
+        target_agent_name = handoff.agent_name
+
+        if target_agent_name not in self.agents:
+            return AgentHandoffResponse(
+                success=False,
+                response=None,
+                error_message=f"Agent '{target_agent_name}' not found",
+            )
+
+        # Check peer handoff limits
+        if len(handoff_chain) >= self.architecture_config.max_peer_handoffs:
+            return AgentHandoffResponse(
+                success=False,
+                response=None,
+                error_message="Maximum peer handoffs exceeded",
+            )
+
+        return AgentHandoffResponse(
+            success=True,
+            response=None,
+            handoff_chain=handoff_chain + [target_agent_name],
+        )
+
+    def _format_review_query(
+        self, query: str, specialist_response: Any, specialist_agent_name: str
+    ) -> str:
+
+        return f"""
+        Original query: {query}
+
+        Specialist ({specialist_agent_name}) provided the following response:
+        {specialist_response}
+
+        Please review this response and either:
+        1. Accept it as the final answer
+        2. Request modifications 
+        3. Hand off to a different specialist
+        4. Provide your own final answer
+
+        Provide a final response to the user.
+        """
 
     def _format_conversation_history(self) -> str:
         """Format conversation history for handoff context."""

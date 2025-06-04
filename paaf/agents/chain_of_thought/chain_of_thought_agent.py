@@ -97,12 +97,44 @@ Key principles:
 
         return self._start_reasoning()
 
+    async def arun(self, query: str) -> AgentResponse:
+        """
+        Async version of run method.
+
+        Args:
+            query: The user query to process
+
+        Returns:
+            AgentResponse: The response with potential handoff information
+        """
+        self.query = query
+        self.messages = [Message(role="user", content=query)]
+        self.current_step = 0
+
+        return await self._astart_reasoning()
+
     def _start_reasoning(self) -> AgentResponse:
         """Start the reasoning process with handoff awareness."""
         # Remove immediate handoff check - let LLM decide through reasoning
 
         # Perform step-by-step reasoning
         reasoning_result = self._perform_structured_reasoning()
+
+        # Check if the result indicates a handoff
+        if (
+            isinstance(reasoning_result, AgentResponse)
+            and reasoning_result.requires_handoff
+        ):
+            return reasoning_result
+
+        # Generate final answer
+        final_answer = reasoning_result
+        return self.wrap_response_with_handoff_check(final_answer, self.query)
+
+    async def _astart_reasoning(self) -> AgentResponse:
+        """Async version of _start_reasoning method."""
+        # Perform step-by-step reasoning
+        reasoning_result = await self._aperform_structured_reasoning()
 
         # Check if the result indicates a handoff
         if (
@@ -161,6 +193,50 @@ Key principles:
 
         # Generate response from LLM
         llm_response = self.llm.generate(prompt=prompt)
+
+        # Parse the response
+        return self._parse_reasoning_response(llm_response)
+
+    async def _aperform_structured_reasoning(self):
+        """Async version of _perform_structured_reasoning method."""
+        # Prepare the prompt using the template
+        reasoning_steps_structure = {
+            "step_number": 1,
+            "step_description": "Analyze the query and identify key components",
+            "reasoning": "Detailed reasoning for this step",
+        }
+
+        handoff_structure = "null"
+        if self.handoffs_enabled and self.handoff_capabilities:
+            handoff_structure = json.dumps(
+                {
+                    "agent_name": "specialist_agent_name",
+                    "context": "Reason for handoff to specialist",
+                    "input_data": {
+                        "original_query": self.query,
+                        "domain": "relevant_domain",
+                    },
+                }
+            )
+
+        output_format = self.get_output_format()
+        if output_format is None:
+            output_format = "string"
+
+        prompt = self.template.format(
+            system_prompt=self.get_system_prompt(),
+            query=self.query,
+            max_steps=self.max_steps,
+            history=self._format_message_history(),
+            tools=[tool.to_dict() for tool in self.tools_registry.tools.values()],
+            available_agents=self.get_available_agents_description(),
+            handoff_structure=handoff_structure,
+            reasoning_steps_structure=json.dumps(reasoning_steps_structure),
+            output_format=json.dumps(output_format),
+        )
+
+        # Generate response from LLM
+        llm_response = await self.llm.agenerate(prompt=prompt)
 
         # Parse the response
         return self._parse_reasoning_response(llm_response)

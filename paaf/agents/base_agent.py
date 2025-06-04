@@ -75,6 +75,19 @@ Key principles:
         """
         pass
 
+    @abstractmethod
+    async def arun(self, query: str) -> Any:
+        """
+        Async version of run method.
+
+        Args:
+            query: The user query to process
+
+        Returns:
+            Any: The generated response from the agent
+        """
+        pass
+
     def get_output_format(self) -> dict | str | None:
         """
         Get the output format as a JSON-compatible dictionary.

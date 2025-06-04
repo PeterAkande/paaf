@@ -1,5 +1,6 @@
 import json
 from typing import Any, Dict, List, Optional, Tuple
+import asyncio
 
 from pydantic import BaseModel
 from pydantic import BaseModel
@@ -135,6 +136,46 @@ class ReWOOAgent(BaseAgent):
             query=query,
         )
 
+    async def arun(self, query: str):
+        """
+        Async version of run method.
+        """
+        self.query = query
+
+        await self._aplan()
+        await self._aworker()
+
+        response = await self._asolve()
+
+        final_response = None
+        if self.output_format is not None:
+            # If an output format is defined, try to parse the last message content as the structured format
+            try:
+                if isinstance(response, dict):
+                    final_response = self.output_format(response)
+                elif isinstance(response, str):
+                    # Try to parse JSON string
+                    import json
+
+                    try:
+                        content_dict = json.loads(response)
+                        final_response = self.output_format(**content_dict)
+                    except (json.JSONDecodeError, TypeError):
+                        # If it's not JSON, treat it as a string answer
+                        final_response = str(response)
+                else:
+                    final_response = str(response)
+            except Exception as e:
+                logger.error(f"Error formatting output: {e}")
+                final_response = str(response)
+        else:
+            final_response = str(response)
+
+        return self.wrap_response_with_handoff_check(
+            content=final_response,
+            query=query,
+        )
+
     def should_handoff(self, query):
         return None
 
@@ -171,6 +212,60 @@ class ReWOOAgent(BaseAgent):
         logger.debug(f"Planner: Planning Steps...")
 
         response = self.llm.generate(prompt=prompt)
+
+        response = self._clean_response(response)
+
+        logger.debug(f"Planned steps done..\n")
+
+        # Parse the response to extract the plans
+        try:
+            plans_data = json.loads(response)
+            if isinstance(plans_data, list):
+                self.plans = [RewooPlan(**plan) for plan in plans_data]
+
+            elif isinstance(plans_data, dict):
+                self.plans = [RewooPlan(**plans_data)]
+
+            else:
+                logger.error("Invalid response format from planner")
+                raise ValueError("Invalid response format from planner")
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse planning response: {e}")
+            raise ValueError("Invalid response format from planner") from e
+
+    async def _aplan(self):
+        """
+        Async version of _plan method.
+        """
+        handoff_structure = "null"
+        if self.handoffs_enabled and self.handoff_capabilities:
+            handoff_structure = json.dumps(
+                RewooPlan.get_example_json_for_action(
+                    action_type=RewooActionType.HANDOFF,
+                )
+            )
+
+        # Prepare the tool call structure
+        tool_call_json = json.dumps(
+            RewooPlan.get_example_json_for_action(
+                action_type=RewooActionType.TOOL_CALL,
+            )
+        )
+
+        prompt = self.planner_template.format(
+            available_tools=[
+                tool.to_dict() for tool in self.tools_registry.tools.values()
+            ],
+            available_agents=self.get_available_agents_description(),
+            tool_plan_structure=tool_call_json,
+            agent_handoff_structure=handoff_structure,
+            query=self.query,
+        )
+
+        logger.debug(f"Planner: Planning Steps...")
+
+        response = await self.llm.agenerate(prompt=prompt)
 
         response = self._clean_response(response)
 
@@ -236,6 +331,67 @@ class ReWOOAgent(BaseAgent):
 
         logger.debug(f"Solver: Executed all tools for {len(self.plans)} plan(s)\n")
 
+    async def _aworker(self):
+        """
+        Async version of _worker method.
+        """
+        logger.debug("Worker: Executing all tools to get Evidence for plans")
+
+        if not self.plans:
+            logger.error("No plans available for evidence generation")
+            raise ValueError("No plans available for evidence generation")
+
+        # Run the solver for each plan concurrently
+        tasks = []
+        for plan in self.plans:
+            if plan.action_type == RewooActionType.HANDOFF:
+                continue
+
+            if plan.action_type != RewooActionType.TOOL_CALL:
+                logger.error(f"Unsupported action type: {plan.action_type}")
+                continue
+
+            tasks.append(self._aprocess_plan(plan))
+
+        # Execute all tool calls concurrently
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Process results
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    logger.error(f"Error processing plan {i}: {result}")
+                    evidence = RewooEvidence(content="No Evidence Found")
+                    self.plan_and_evidence.append((self.plans[i], evidence))
+                else:
+                    plan, evidence = result
+                    self.plan_and_evidence.append((plan, evidence))
+
+        logger.debug(f"Solver: Executed all tools for {len(self.plans)} plan(s)\n")
+
+    async def _aprocess_plan(self, plan: RewooPlan) -> Tuple[RewooPlan, RewooEvidence]:
+        """Process a single plan asynchronously."""
+        tool_choice = plan.tool_choice
+        tool_arguments = plan.tool_arguments or {}
+
+        if not isinstance(tool_choice, ToolChoice):
+            logger.error(
+                f"Invalid tool choice format: {tool_choice}. Expected ToolChoice."
+            )
+            return plan, RewooEvidence(content="No Evidence Found")
+
+        if not isinstance(tool_arguments, dict):
+            logger.error(
+                f"Invalid tool arguments format: {tool_arguments}. Expected dict."
+            )
+            return plan, RewooEvidence(content="No Evidence Found")
+
+        # Call the tool based on the decision made by the planner
+        result = await self._acall_tool(tool_choice, tool_arguments)
+        evidence = RewooEvidence(content=result)
+
+        return plan, evidence
+
     def _call_tool(self, tool_choice: ToolChoice, tool_arguments: dict):
         """
         Call by the tool based on the decision made by the planner.
@@ -261,6 +417,29 @@ class ReWOOAgent(BaseAgent):
         result = "No Evidence Found"
         try:
             result = tool(**tool_arguments)
+        except Exception as e:
+            logger.error(f"Error executing tool {tool_choice.name}: {e}")
+            result = "No Evidence Found"
+
+        logger.debug(f"Executed tool: {tool_choice.name} and gotten result")
+
+        return result
+
+    async def _acall_tool(self, tool_choice: ToolChoice, tool_arguments: dict):
+        """
+        Async version of _call_tool method.
+        """
+        if tool_choice.tool_id not in self.tools_registry.tools:
+            return "No Evidence Found"
+
+        # Log the tool choice and arguments
+        logger.debug(
+            f"Executing tool: {tool_choice.name} with arguments: {tool_arguments}\n"
+        )
+
+        result = "No Evidence Found"
+        try:
+            result = await self.tools_registry.acall_tool(tool_choice.tool_id, **tool_arguments)
         except Exception as e:
             logger.error(f"Error executing tool {tool_choice.name}: {e}")
             result = "No Evidence Found"
@@ -295,6 +474,35 @@ class ReWOOAgent(BaseAgent):
 
         logger.debug("Solver: Generating final response...")
         response = self.llm.generate(prompt=prompt)
+        logger.debug("Solver: Generated final response..\n")
+
+        return self._clean_response(response)
+
+    async def _asolve(self):
+        """
+        Async version of _solve method.
+        """
+        if not self.plan_and_evidence:
+            logger.error("No plan and evidence available for solving")
+            raise ValueError("No plan and evidence available for solving")
+
+        plan_and_evidence_str = "\n".join(
+            f"Plan: {plan.model_dump()}\nEvidence: {evidence.content}"
+            for plan, evidence in self.plan_and_evidence
+        )
+
+        response_format = ""
+        if self.output_format is not None:
+            response_format = f"Respond JUST in the JSON format:\n{self.get_output_format()}"
+
+        prompt = self.solver_template.format(
+            query=self.query,
+            plan_and_evidence=plan_and_evidence_str,
+            response_format=response_format,
+        )
+
+        logger.debug("Solver: Generating final response...")
+        response = await self.llm.agenerate(prompt=prompt)
         logger.debug("Solver: Generated final response..\n")
 
         return self._clean_response(response)

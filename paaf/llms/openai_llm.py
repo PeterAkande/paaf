@@ -35,6 +35,7 @@ class OpenAILLM(BaseLLM):
         self.kwargs = kwargs
 
         self.client = openai.Client(api_key=self.api_key, base_url=self.base_url)
+        self.async_client = openai.AsyncClient(api_key=self.api_key, base_url=self.base_url)
 
     def generate(self, prompt: str, response_format=None) -> str:
         """
@@ -49,6 +50,29 @@ class OpenAILLM(BaseLLM):
         """
 
         response = self.client.beta.chat.completions.parse(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format=response_format if response_format else openai.NOT_GIVEN,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            **self.kwargs,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    async def agenerate(self, prompt: str, response_format=None) -> str:
+        """
+        Async version of generate method.
+
+        Args:
+            prompt (str): The prompt to generate a response for.
+            response_format: The format of the response, if any.
+
+        Returns:
+            str: The generated response.
+        """
+
+        response = await self.async_client.beta.chat.completions.parse(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             response_format=response_format if response_format else openai.NOT_GIVEN,

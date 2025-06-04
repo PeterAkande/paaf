@@ -1,4 +1,6 @@
 from typing import Dict, List
+import asyncio
+import inspect
 from paaf.models.tool import Tool
 
 
@@ -95,3 +97,27 @@ class ToolRegistry:
         self.tools[tool_instance.tool_id] = tool_instance
 
         return tool_instance
+
+    async def acall_tool(self, tool_id: str, **kwargs):
+        """
+        Async version of tool calling.
+
+        Args:
+            tool_id: The ID of the tool to call
+            **kwargs: Arguments to pass to the tool
+
+        Returns:
+            The result of the tool execution
+        """
+        if tool_id not in self.tools:
+            raise ValueError(f"Tool with ID {tool_id} not found")
+
+        tool = self.tools[tool_id]
+
+        if inspect.iscoroutinefunction(tool.callable):
+            # If the tool is async, await it
+            return await tool.callable(**kwargs)
+        else:
+            # If the tool is sync, run it in a thread pool
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, lambda: tool.callable(**kwargs))
