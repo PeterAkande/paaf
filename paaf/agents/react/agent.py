@@ -918,7 +918,9 @@ Your capabilities:
 
         # Call the callback
         try:
+            self.log(f"Sending callback for step {step_summary.step_number}: {step_summary.action_taken}")
             self.step_callback(callback_data)
+            self.log(f"Callback for step {step_summary.step_number} completed successfully.")
         except Exception as e:
             self.log(f"Error in step callback: {e}", "error")
 
