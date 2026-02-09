@@ -5,7 +5,6 @@ import asyncio
 import inspect
 
 from pydantic import BaseModel
-from paaf.config.logging import get_logger
 from paaf.models.react.react_agent_response import (
     ReactAgentActionType,
     ReactAgentResponse,
@@ -24,9 +23,6 @@ from paaf.models.agent_handoff import AgentHandoff
 from paaf.models.agent_response import AgentResponse
 
 
-logger = get_logger(__name__)
-
-
 class ReactAgent(BaseAgent):
     """
     ReAct Agent that uses a Language Model to generate responses and choose tools.
@@ -40,12 +36,14 @@ class ReactAgent(BaseAgent):
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,
         step_callback: Optional[Callable[[ReactStepCallback], None]] = None,
+        verbose: bool = False,
     ):
         super().__init__(
             llm=llm,
             tool_registry=tool_registry,
             output_format=output_format,
             system_prompt=system_prompt,
+            verbose=verbose,
         )
         self.max_iterations = max_iterations
         self.messages: List[Message] = []  # Conversation history
@@ -178,7 +176,7 @@ Your capabilities:
             Any: The generated response from the agent
         """
         self.query = query
-        
+
         # Initialize execution summary
         self.execution_summary = ReactExecutionSummary(
             query=query,
@@ -186,59 +184,61 @@ Your capabilities:
             start_time=datetime.now(),
         )
         self.current_step_number = 0
-        
+
         try:
             result = await self._astart()
-            
+
             # Finalize execution summary
             self.execution_summary.end_time = datetime.now()
             self.execution_summary.total_steps = self.current_step_number
-            self.execution_summary.final_response = result.content if isinstance(result, AgentResponse) else result
+            self.execution_summary.final_response = (
+                result.content if isinstance(result, AgentResponse) else result
+            )
             self.execution_summary.success = True
-            
+
             if isinstance(result, AgentResponse) and result.handoff:
                 self.execution_summary.handoff_occurred = True
                 self.execution_summary.handoff_target = result.handoff.agent_name
-            
+
             # Send final callback
             if self.step_callback and self.execution_summary.steps:
                 final_step = self.execution_summary.steps[-1]
                 final_step.is_final_step = True
                 final_step.final_answer = self.execution_summary.final_response
-                
+
                 callback_data = ReactStepCallback(
                     current_step=final_step,
                     execution_summary=self.execution_summary,
                     conversation_history=[msg.content for msg in self.messages[-5:]],
-                    metadata={"is_final": True}
+                    metadata={"is_final": True},
                 )
                 await self._asend_callback(callback_data)
-            
+
             return result
-            
+
         except Exception as e:
             # Handle execution error
             self.execution_summary.end_time = datetime.now()
             self.execution_summary.success = False
             self.execution_summary.error_message = str(e)
-            
+
             # Send error callback
             if self.step_callback:
                 error_step = ReactStepSummary(
                     step_type=ReactStepType.FINAL,
                     step_number=self.current_step_number + 1,
                     error=str(e),
-                    is_final_step=True
+                    is_final_step=True,
                 )
-                
+
                 callback_data = ReactStepCallback(
                     current_step=error_step,
                     execution_summary=self.execution_summary,
                     conversation_history=[msg.content for msg in self.messages[-5:]],
-                    metadata={"is_error": True}
+                    metadata={"is_error": True},
                 )
                 await self._asend_callback(callback_data)
-            
+
             raise
 
     def load_message_history(self) -> str:
@@ -308,7 +308,7 @@ Your capabilities:
                 else:
                     final_response = last_message.content
             except Exception as e:
-                logger.error(f"Error formatting output: {e}")
+                self.log(f"Error formatting output: {e}", "error")
                 final_response = last_message.content
         else:
             final_response = last_message.content
@@ -362,7 +362,7 @@ Your capabilities:
                 else:
                     final_response = last_message.content
             except Exception as e:
-                logger.error(f"Error formatting output: {e}")
+                self.log(f"Error formatting output: {e}", "error")
                 final_response = last_message.content
         else:
             final_response = last_message.content
@@ -454,7 +454,7 @@ Your capabilities:
         think_step.reasoning = response.reasoning
         think_step.action_taken = f"Decided to {response.action_type.value}"
 
-        logger.info(f"Iteration {self.current_iteration}: {response}\n")
+        self.log(f"Iteration {self.current_iteration}: {response}", "info")
 
         # Send callback for thinking step
         self._send_callback(think_step)
@@ -470,15 +470,15 @@ Your capabilities:
         think_step = ReactStepSummary(
             step_type=ReactStepType.THINK,
             step_number=self.current_step_number,
-            action_taken="Analyzing query and determining next action"
+            action_taken="Analyzing query and determining next action",
         )
-        
+
         if self.current_iteration > self.max_iterations:
             error_msg = f"Maximum number of iterations ({self.max_iterations}) reached."
             think_step.error = error_msg
             await self._asend_callback(think_step)
             raise ValueError(error_msg)
-            
+
         self.current_iteration += 1
 
         answer_structure = ReactAgentResponse.get_example_json_for_action(
@@ -539,9 +539,9 @@ Your capabilities:
         # Update step summary with reasoning
         think_step.reasoning = response.reasoning
         think_step.action_taken = f"Decided to {response.action_type.value}"
-        
-        logger.info(f"Iteration {self.current_iteration}: {response}\n")
-        
+
+        self.log(f"Iteration {self.current_iteration}: {response}", "info")
+
         # Send callback for thinking step
         await self._asend_callback(think_step)
 
@@ -671,15 +671,15 @@ Your capabilities:
                 step_number=self.current_step_number,
                 action_taken="Providing final answer",
                 final_answer=response.answer,
-                is_final_step=True
+                is_final_step=True,
             )
-            
+
             # If the action type is ANSWER, store the structured answer
             self.messages.append(Message(role="assistant", content=response.answer))
-            
+
             # Send callback for final answer
             await self._asend_callback(answer_step)
-            
+
             return None  # End the thinking loop
 
         elif response.action_type == ReactAgentActionType.HANDOFF:
@@ -689,21 +689,25 @@ Your capabilities:
                 step_type=ReactStepType.HANDOFF,
                 step_number=self.current_step_number,
                 action_taken="Handing off to another agent",
-                handoff_target=response.handoff.agent_name if response.handoff else None,
+                handoff_target=(
+                    response.handoff.agent_name if response.handoff else None
+                ),
                 handoff_context=response.handoff.context if response.handoff else None,
-                is_final_step=True
+                is_final_step=True,
             )
-            
+
             # Return the response with handoff information for MultiAgent to handle
             if not response.handoff:
-                error_msg = "Response does not contain handoff information for HANDOFF action."
+                error_msg = (
+                    "Response does not contain handoff information for HANDOFF action."
+                )
                 handoff_step.error = error_msg
                 await self._asend_callback(handoff_step)
                 raise ValueError(error_msg)
 
             # Send callback for handoff
             await self._asend_callback(handoff_step)
-            
+
             # Return the handoff response directly
             return response
 
@@ -742,8 +746,9 @@ Your capabilities:
             raise ValueError(error_msg)
 
         # Log the tool choice and arguments
-        logger.info(
-            f"Executing tool: {tool_choice.name} with arguments: {tool_arguments}\n"
+        self.log(
+            f"Executing tool: {tool_choice.name} with arguments: {tool_arguments}",
+            "info",
         )
 
         try:
@@ -811,7 +816,7 @@ Your capabilities:
             step_number=self.current_step_number,
             action_taken=f"Executing tool: {tool_choice.name}",
             tool_used=tool_choice.name,
-            tool_arguments=tool_arguments
+            tool_arguments=tool_arguments,
         )
 
         if tool_choice.tool_id not in self.tools_registry.tools:
@@ -829,15 +834,18 @@ Your capabilities:
             raise ValueError(error_msg)
 
         # Log the tool choice and arguments
-        logger.info(
-            f"Executing tool: {tool_choice.name} with arguments: {tool_arguments}\n"
+        self.log(
+            f"Executing tool: {tool_choice.name} with arguments: {tool_arguments}",
+            "info",
         )
 
         try:
             # Use async tool calling
-            result = await self.tools_registry.acall_tool(tool_choice.tool_id, **tool_arguments)
+            result = await self.tools_registry.acall_tool(
+                tool_choice.tool_id, **tool_arguments
+            )
             act_step.tool_result = result
-            
+
             self.messages.append(
                 Message(
                     role="tool",
@@ -850,10 +858,10 @@ Your capabilities:
                     content=f"Result from tool {tool_choice.name}: {result}",
                 )
             )
-            
+
             # Send callback for successful action
             await self._asend_callback(act_step)
-            
+
             # Create observe step
             self.current_step_number += 1
             observe_step = ReactStepSummary(
@@ -861,7 +869,7 @@ Your capabilities:
                 step_number=self.current_step_number,
                 action_taken=f"Observing result from {tool_choice.name}",
                 tool_used=tool_choice.name,
-                tool_result=result
+                tool_result=result,
             )
             await self._asend_callback(observe_step)
 
@@ -869,7 +877,7 @@ Your capabilities:
             error_msg = f"Error executing tool {tool_choice.name}: {str(e)}"
             act_step.error = error_msg
             act_step.tool_result = None
-            
+
             self.messages.append(
                 Message(
                     role="tool",
@@ -882,10 +890,10 @@ Your capabilities:
                     content=f"Error executing tool {tool_choice.name}: {str(e)}",
                 )
             )
-            
+
             # Send callback for failed action
             await self._asend_callback(act_step)
-            
+
         finally:
             # After executing the tool, we can think again to decide the next action
             await self._athink()
@@ -913,16 +921,16 @@ Your capabilities:
         try:
             self.step_callback(callback_data)
         except Exception as e:
-            logger.error(f"Error in step callback: {e}")
+            self.log(f"Error in step callback: {e}", "error")
 
     async def _asend_callback(self, step_summary: ReactStepSummary):
         """Async version of send callback."""
         if not self.step_callback:
             return
-            
+
         # Add step to execution summary
         self.execution_summary.steps.append(step_summary)
-        
+
         # Create callback data
         callback_data = ReactStepCallback(
             current_step=step_summary,
@@ -931,9 +939,9 @@ Your capabilities:
             metadata={
                 "iteration": self.current_iteration,
                 "max_iterations": self.max_iterations,
-            }
+            },
         )
-        
+
         # Call the callback
         try:
             if inspect.iscoroutinefunction(self.step_callback):
@@ -941,7 +949,7 @@ Your capabilities:
             else:
                 self.step_callback(callback_data)
         except Exception as e:
-            logger.error(f"Error in step callback: {e}")
+            self.log(f"Error in step callback: {e}", "error")
 
     def _format_available_agents(self) -> str:
         """Format available agents for the prompt."""

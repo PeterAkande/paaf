@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import logging
 from typing import List, Optional, Any
 
 from pydantic import BaseModel
@@ -24,6 +25,7 @@ class BaseAgent(ABC):
         tool_registry: ToolRegistry = None,
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,
+        verbose: bool = False,
     ):
         self.llm = llm
         self.tools_registry = (
@@ -39,6 +41,11 @@ class BaseAgent(ABC):
         self.handoff_capabilities: List[HandoffCapability] = []
         self.handoffs_enabled = False
         self.system_prompt = system_prompt or self.get_default_system_prompt()
+        
+        # Verbose logging setup
+        self.verbose = verbose
+        self._logger = logging.getLogger(f"{self.__class__.__module__}.{self.__class__.__name__}")
+        self._logger.setLevel(logging.DEBUG if verbose else logging.WARNING)
 
     def get_default_system_prompt(self) -> str:
         """
@@ -61,6 +68,18 @@ Key principles:
     def get_system_prompt(self) -> str:
         """Get the current system prompt."""
         return self.system_prompt
+
+    def log(self, message: str, level: str = "debug") -> None:
+        """
+        Log a message if verbose mode is enabled.
+        
+        Args:
+            message: The message to log
+            level: Log level ('debug', 'info', 'warning', 'error')
+        """
+        if self.verbose:
+            log_func = getattr(self._logger, level, self._logger.debug)
+            log_func(message)
 
     @abstractmethod
     def run(self, query: str) -> Any:

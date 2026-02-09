@@ -32,12 +32,14 @@ class ReWOOAgent(BaseAgent):
         tool_registry: ToolRegistry | None = None,
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,
+        verbose: bool = False,
     ):
         super().__init__(
             llm=llm,
             tool_registry=tool_registry,
             output_format=output_format,
             system_prompt=system_prompt,
+            verbose=verbose,
         )
 
         self.planner_template = None

@@ -30,12 +30,14 @@ class ChainOfThoughtAgent(BaseAgent):
         max_steps: int = 5,
         output_format: BaseModel | None = None,
         system_prompt: str | None = None,
+        verbose: bool = False,
     ):
         super().__init__(
             llm=llm,
             tool_registry=tool_registry,
             output_format=output_format,
             system_prompt=system_prompt,
+            verbose=verbose,
         )
         self.max_steps = max_steps
         self.messages: List[Message] = []
