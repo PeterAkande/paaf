@@ -751,6 +751,8 @@ Your capabilities:
             "info",
         )
 
+        # Send callback that acting step has started
+        self._send_callback(act_step)
         try:
             result = tool(**tool_arguments)
             act_step.tool_result = result
@@ -767,9 +769,6 @@ Your capabilities:
                     content=f"Result from tool {tool_choice.name}: {result}",
                 )
             )
-
-            # Send callback for successful action
-            self._send_callback(act_step)
 
             # Create observe step
             self.current_step_number += 1
