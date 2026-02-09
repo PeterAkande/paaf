@@ -46,6 +46,14 @@ class BaseAgent(ABC):
         self.verbose = verbose
         self._logger = logging.getLogger(f"{self.__class__.__module__}.{self.__class__.__name__}")
         self._logger.setLevel(logging.DEBUG if verbose else logging.WARNING)
+        
+        # Add handler if verbose and logger doesn't have one yet
+        if verbose and not self._logger.handlers:
+            handler = logging.StreamHandler()
+            handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            ))
+            self._logger.addHandler(handler)
 
     def get_default_system_prompt(self) -> str:
         """
@@ -78,7 +86,7 @@ Key principles:
             level: Log level ('debug', 'info', 'warning', 'error')
         """
         if self.verbose:
-            log_func = getattr(self._logger, level, self._logger.debug)
+            log_func = getattr(self._logger, level, self._logger.info)
             log_func(message)
 
     @abstractmethod
